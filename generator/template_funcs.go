@@ -106,6 +106,24 @@ func Namify(e Enum) (ret string, err error) {
 	return
 }
 
+func Tagify(e Enum, tag string, value TagValue) (ret string, err error) {
+	strName := fmt.Sprintf(`_%sTag%s`, e.Name, tag)
+	strValue := ""
+	ret = fmt.Sprintf("var %sMap = map[%s]string{\n", strName, e.Name)
+	index := 0
+	for _, val := range e.Values {
+		if val.Name != skipHolder {
+			strValue += value[val.Name]
+			nextIndex := index + len(value[val.Name])
+			ret = fmt.Sprintf("%s%s: %s[%d:%d],\n", ret, val.PrefixedName, strName, index, nextIndex)
+			index = nextIndex
+		}
+	}
+	ret = ret + `}`
+	ret = fmt.Sprintf("const %s = \"%s\"\n", strName, strValue) + ret
+	return
+}
+
 // Namify returns a slice that is all of the possible names for an enum in a slice
 func namifyStringEnum(e Enum) (ret string, err error) {
 	ret = "[]string{\n"

@@ -44,6 +44,7 @@ type Enum struct {
 	Prefix  string
 	Type    string
 	Values  []EnumValue
+	Tags    map[string]TagValue
 	Comment string
 }
 
@@ -56,6 +57,8 @@ type EnumValue struct {
 	ValueInt     any
 	Comment      string
 }
+
+type TagValue map[string]string
 
 // NewGenerator is a constructor method for creating a new Generator with default
 // templates loaded.
@@ -91,6 +94,7 @@ func NewGeneratorWithConfig(config GeneratorConfig) *Generator {
 	funcs["mapify"] = Mapify
 	funcs["unmapify"] = Unmapify
 	funcs["namify"] = Namify
+	funcs["tagify"] = Tagify
 	funcs["offset"] = Offset
 	funcs["quote"] = strconv.Quote
 	funcs["directVal"] = DirectValue
@@ -284,7 +288,9 @@ func (g *Generator) parseEnum(ts *ast.TypeSpec) (*Enum, error) {
 		return nil, errors.New("no doc on enum")
 	}
 
-	enum := &Enum{}
+	enum := &Enum{
+		Tags: make(map[string]TagValue),
+	}
 
 	enum.Name = ts.Name.Name
 	enum.Type = fmt.Sprintf("%s", ts.Type)
@@ -369,6 +375,7 @@ func (g *Generator) parseEnum(ts *ast.TypeSpec) (*Enum, error) {
 				}
 			}
 			rawName = strings.TrimSpace(rawName)
+			rawName, tags := parseTags(rawName)
 			valueStr = strings.TrimSpace(valueStr)
 			name := cases.Title(language.Und, cases.NoLower).String(rawName)
 			prefixedName := name
@@ -378,6 +385,12 @@ func (g *Generator) parseEnum(ts *ast.TypeSpec) (*Enum, error) {
 				if !g.LeaveSnakeCase {
 					prefixedName = snakeToCamelCase(prefixedName)
 				}
+			}
+			for k, v := range tags {
+				if enum.Tags[k] == nil {
+					enum.Tags[k] = make(TagValue)
+				}
+				enum.Tags[k][name] = v
 			}
 
 			ev := EnumValue{Name: name, RawName: rawName, PrefixedName: prefixedName, ValueStr: valueStr, ValueInt: data, Comment: comment}
@@ -389,6 +402,63 @@ func (g *Generator) parseEnum(ts *ast.TypeSpec) (*Enum, error) {
 	// fmt.Printf("###\nENUM: %+v\n###\n", enum)
 
 	return enum, nil
+}
+
+// parseTags returns raw name and tags parsed from name.
+// Name format: raw_name [`tag_key1:"tag_value1" tag_key2:"tag value2"`].
+func parseTags(name string) (string, map[string]string) {
+	names := strings.SplitN(name, " ", 2)
+	if len(names) <= 1 {
+		return name, nil
+	}
+	tag := strings.Trim(strings.TrimSpace(names[1]), "`")
+	tags := map[string]string{}
+	for tag != "" {
+		// Skip leading space.
+		i := 0
+		for i < len(tag) && tag[i] == ' ' {
+			i++
+		}
+		tag = tag[i:]
+		if tag == "" {
+			break
+		}
+
+		// Scan to colon. A space, a quote or a control character is a syntax error.
+		// Strictly speaking, control chars include the range [0x7f, 0x9f], not just
+		// [0x00, 0x1f], but in practice, we ignore the multi-byte control characters
+		// as it is simpler to inspect the tag's bytes than the tag's runes.
+		i = 0
+		for i < len(tag) && tag[i] > ' ' && tag[i] != ':' && tag[i] != '"' && tag[i] != 0x7f {
+			i++
+		}
+		if i == 0 || i+1 >= len(tag) || tag[i] != ':' || tag[i+1] != '"' {
+			break
+		}
+		name := string(tag[:i])
+		tag = tag[i+1:]
+
+		// Scan quoted string to find value.
+		i = 1
+		for i < len(tag) && tag[i] != '"' {
+			if tag[i] == '\\' {
+				i++
+			}
+			i++
+		}
+		if i >= len(tag) {
+			break
+		}
+		qvalue := string(tag[:i+1])
+		tag = tag[i+1:]
+
+		value, err := strconv.Unquote(qvalue)
+		if err != nil {
+			break
+		}
+		tags[cases.Title(language.Und, cases.NoLower).String(name)] = value
+	}
+	return names[0], tags
 }
 
 func identifyQuoted(s string) string {

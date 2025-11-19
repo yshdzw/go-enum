@@ -56,6 +56,18 @@ func (x {{.enum.Name}}) String() string {
 	return fmt.Sprintf("{{.enum.Name}}(%d)", x)
 }
 
+{{if (gt (len .enum.Tags) 0) }}
+{{ range $tag, $value := .enum.Tags }}
+{{ tagify $.enum $tag $value }}
+
+// Tag{{$tag}} returns the {{$tag}} tag value.
+func (x {{$.enum.Name}}) Tag{{$tag}}() string {
+	return _{{$.enum.Name}}Tag{{$tag}}Map[x]
+}
+
+{{end}}
+{{end}}
+
 // IsValid provides a quick way to determine if the typed value is
 // part of the allowed enumerated values
 func (x {{.enum.Name}}) IsValid() bool {
